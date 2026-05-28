@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/dongruiyang2024/open-agent-sdk-typescript/issues"
   },
-  "version": "0.2.2-trademind.1",
+  "version": "0.2.2-trademind.2",
   "description": "Open-source Agent SDK. Runs the full agent loop in-process — no local CLI required. Deploy anywhere: cloud, serverless, Docker, CI/CD.",
   "type": "module",
   "main": "./dist/index.js",

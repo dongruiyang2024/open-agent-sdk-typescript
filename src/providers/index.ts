@@ -4,7 +4,7 @@
  * Creates the appropriate provider based on API type configuration.
  */
 
-export type { ApiType, LLMProvider, CreateMessageParams, CreateMessageResponse, NormalizedMessageParam, NormalizedContentBlock, NormalizedTool, NormalizedResponseBlock, ReasoningEffort } from './types.js'
+export type { ApiType, LLMProvider, CreateMessageParams, CreateMessageResponse, NormalizedMessageParam, NormalizedContentBlock, NormalizedTool, NormalizedResponseBlock, ProviderStreamEvent, ReasoningEffort } from './types.js'
 
 export { AnthropicProvider } from './anthropic.js'
 export { OpenAIProvider } from './openai.js'

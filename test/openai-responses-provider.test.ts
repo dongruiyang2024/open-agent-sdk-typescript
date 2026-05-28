@@ -18,6 +18,27 @@ function createSseResponse(events: Array<Record<string, any>>): Response {
   )
 }
 
+function createDelayedSseResponse(events: Array<Record<string, any>>): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        for (const event of events) {
+          controller.enqueue(
+            encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`),
+          )
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        controller.close()
+      },
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    },
+  )
+}
+
 afterEach(() => {
   globalThis.fetch = originalFetch
 })
@@ -252,5 +273,57 @@ describe('OpenAI Responses provider', () => {
     assert.equal(capturedBody.reasoning.effort, 'high')
     assert.deepEqual(capturedBody.input, [{ role: 'user', content: 'Ping' }])
     assert.ok(events.some((event) => event.type === 'assistant'))
+  })
+
+  it('streams Responses text deltas through createAgent partial messages', async () => {
+    globalThis.fetch = async () => {
+      return createDelayedSseResponse([
+        {
+          type: 'response.output_text.delta',
+          delta: 'hello ',
+        },
+        {
+          type: 'response.output_text.delta',
+          delta: 'stream',
+        },
+        {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            usage: {
+              input_tokens: 5,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const agent = createAgent({
+      apiType: 'openai-responses',
+      apiKey: 'test-key',
+      baseURL: 'https://gateway.example.test/v1',
+      cwd: '/tmp',
+      includePartialMessages: true,
+      maxTurns: 1,
+      model: 'gpt-5.5-high',
+      systemPrompt: 'You are useful.',
+      tools: [],
+    })
+
+    const events = []
+    const partialTexts: string[] = []
+    for await (const event of agent.query('Ping')) {
+      events.push(event.type)
+      if (event.type === 'partial_message') {
+        partialTexts.push(event.partial.text || '')
+      }
+    }
+
+    const partialIndex = events.indexOf('partial_message')
+    const assistantIndex = events.indexOf('assistant')
+    assert.ok(partialIndex >= 0)
+    assert.ok(assistantIndex > partialIndex)
+    assert.deepEqual(partialTexts, ['hello ', 'hello stream'])
   })
 })

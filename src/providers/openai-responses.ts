@@ -13,6 +13,7 @@ import type {
   NormalizedContentBlock,
   NormalizedTool,
   NormalizedResponseBlock,
+  ProviderStreamEvent,
   ReasoningEffort,
 } from './types.js'
 
@@ -65,6 +66,54 @@ export class OpenAIResponsesProvider implements LLMProvider {
   }
 
   async createMessage(params: CreateMessageParams): Promise<CreateMessageResponse> {
+    let finalResponse: CreateMessageResponse | undefined
+
+    for await (const event of this.streamMessage(params)) {
+      if (event.type === 'final_response') {
+        finalResponse = event.response
+      }
+    }
+
+    if (!finalResponse) {
+      throw new Error('OpenAI Responses API stream ended without a final response')
+    }
+
+    return finalResponse
+  }
+
+  async *streamMessage(params: CreateMessageParams): AsyncGenerator<ProviderStreamEvent> {
+    const response = await this.postResponse(params)
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('text/event-stream')) {
+      const data = (await response.json()) as OpenAIResponsesResponse
+      yield { type: 'final_response', response: this.convertResponse(data) }
+      return
+    }
+
+    const textParts: string[] = []
+    let completedResponse: OpenAIResponsesResponse | undefined
+
+    for await (const event of this.streamSseEvents(response)) {
+      if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
+        textParts.push(event.delta)
+        yield { type: 'partial_text', text: textParts.join('') }
+      } else if (event.type === 'response.completed' && event.response) {
+        completedResponse = event.response as OpenAIResponsesResponse
+      } else if (event.type === 'response.failed') {
+        const message = event.response?.error?.message || event.error?.message || 'Responses stream failed'
+        throw new Error(message)
+      } else if (event.type === 'error') {
+        throw new Error(event.error?.message || event.message || 'Responses stream error')
+      }
+    }
+
+    yield {
+      type: 'final_response',
+      response: this.convertResponse(this.buildStreamedResponse(textParts, completedResponse)),
+    }
+  }
+
+  private async postResponse(params: CreateMessageParams): Promise<Response> {
     const tools = params.tools ? this.convertTools(params.tools) : undefined
     const body: Record<string, any> = {
       model: params.model,
@@ -93,6 +142,7 @@ export class OpenAIResponsesProvider implements LLMProvider {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: params.abortSignal,
     })
 
     if (!response.ok) {
@@ -104,8 +154,7 @@ export class OpenAIResponsesProvider implements LLMProvider {
       throw err
     }
 
-    const data = await this.readResponse(response)
-    return this.convertResponse(data)
+    return response
   }
 
   private async readResponse(response: Response): Promise<OpenAIResponsesResponse> {
@@ -118,11 +167,10 @@ export class OpenAIResponsesProvider implements LLMProvider {
   }
 
   private async readStreamedResponse(response: Response): Promise<OpenAIResponsesResponse> {
-    const raw = await response.text()
     const textParts: string[] = []
     let completedResponse: OpenAIResponsesResponse | undefined
 
-    for (const event of this.parseSseEvents(raw)) {
+    for await (const event of this.streamSseEvents(response)) {
       if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
         textParts.push(event.delta)
       } else if (event.type === 'response.completed' && event.response) {
@@ -135,6 +183,13 @@ export class OpenAIResponsesProvider implements LLMProvider {
       }
     }
 
+    return this.buildStreamedResponse(textParts, completedResponse)
+  }
+
+  private buildStreamedResponse(
+    textParts: string[],
+    completedResponse: OpenAIResponsesResponse | undefined,
+  ): OpenAIResponsesResponse {
     if (completedResponse?.output?.length) {
       return completedResponse
     }
@@ -154,35 +209,73 @@ export class OpenAIResponsesProvider implements LLMProvider {
     }
   }
 
+  private async *streamSseEvents(response: Response): AsyncGenerator<Record<string, any>> {
+    const reader = response.body?.getReader()
+    if (!reader) {
+      for (const event of this.parseSseEvents(await response.text())) {
+        yield event
+      }
+      return
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      const chunks = buffer.split(/\r?\n\r?\n/)
+      buffer = chunks.pop() || ''
+
+      for (const chunk of chunks) {
+        const event = this.parseSseEventChunk(chunk)
+        if (event) yield event
+      }
+
+      if (done) break
+    }
+
+    if (buffer.trim()) {
+      const event = this.parseSseEventChunk(buffer)
+      if (event) yield event
+    }
+  }
+
   private parseSseEvents(raw: string): Array<Record<string, any>> {
     const events: Array<Record<string, any>> = []
 
     for (const chunk of raw.split(/\r?\n\r?\n/)) {
-      const dataLines: string[] = []
-
-      for (const line of chunk.split(/\r?\n/)) {
-        if (line.startsWith('data:')) {
-          dataLines.push(line.slice(5).trimStart())
-        }
-      }
-
-      if (dataLines.length === 0) {
-        continue
-      }
-
-      const data = dataLines.join('\n')
-      if (data === '[DONE]') {
-        continue
-      }
-
-      try {
-        events.push(JSON.parse(data))
-      } catch {
-        // Ignore malformed SSE chunks from intermediate proxies.
-      }
+      const event = this.parseSseEventChunk(chunk)
+      if (event) events.push(event)
     }
 
     return events
+  }
+
+  private parseSseEventChunk(chunk: string): Record<string, any> | null {
+    const dataLines: string[] = []
+
+    for (const line of chunk.split(/\r?\n/)) {
+      if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trimStart())
+      }
+    }
+
+    if (dataLines.length === 0) {
+      return null
+    }
+
+    const data = dataLines.join('\n')
+    if (data === '[DONE]') {
+      return null
+    }
+
+    try {
+      return JSON.parse(data)
+    } catch {
+      // Ignore malformed SSE chunks from intermediate proxies.
+      return null
+    }
   }
 
   private convertMessages(messages: NormalizedMessageParam[]): OpenAIResponsesInputItem[] {

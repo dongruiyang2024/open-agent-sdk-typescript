@@ -270,34 +270,57 @@ export class QueryEngine {
       this.turnCount++
       turnsRemaining--
 
+      const requestParams = {
+        model: this.config.model,
+        maxTokens: this.config.maxTokens,
+        system: systemPrompt,
+        messages: apiMessages,
+        tools: tools.length > 0 ? tools : undefined,
+        reasoning: this.config.effort
+          ? { effort: this.config.effort }
+          : undefined,
+        thinking:
+          this.config.thinking?.type === 'enabled' &&
+          this.config.thinking.budgetTokens
+            ? {
+                type: 'enabled',
+                budget_tokens: this.config.thinking.budgetTokens,
+              }
+            : undefined,
+        abortSignal: this.config.abortSignal,
+      }
+
       // Make API call with retry via provider
-      let response: CreateMessageResponse
+      let response: CreateMessageResponse | undefined
       const apiStart = performance.now()
       try {
-        response = await withRetry(
-          async () => {
-            return this.provider.createMessage({
-              model: this.config.model,
-              maxTokens: this.config.maxTokens,
-              system: systemPrompt,
-              messages: apiMessages,
-              tools: tools.length > 0 ? tools : undefined,
-              reasoning: this.config.effort
-                ? { effort: this.config.effort }
-                : undefined,
-              thinking:
-                this.config.thinking?.type === 'enabled' &&
-                this.config.thinking.budgetTokens
-                  ? {
-                      type: 'enabled',
-                      budget_tokens: this.config.thinking.budgetTokens,
-                    }
-                  : undefined,
-            })
-          },
-          undefined,
-          this.config.abortSignal,
-        )
+        if (this.config.includePartialMessages && this.provider.streamMessage) {
+          for await (const event of this.provider.streamMessage(requestParams)) {
+            if (event.type === 'partial_text') {
+              yield {
+                type: 'partial_message',
+                partial: {
+                  type: 'text',
+                  text: event.text,
+                },
+              }
+            } else if (event.type === 'final_response') {
+              response = event.response
+            }
+          }
+        } else {
+          response = await withRetry(
+            async () => {
+              return this.provider.createMessage(requestParams)
+            },
+            undefined,
+            this.config.abortSignal,
+          )
+        }
+
+        if (!response) {
+          throw new Error('Provider completed without a final response')
+        }
       } catch (err: any) {
         // Handle prompt-too-long by compacting
         if (isPromptTooLongError(err) && !this.compactState.compacted) {

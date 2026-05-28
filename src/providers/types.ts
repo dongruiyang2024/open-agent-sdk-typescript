@@ -28,6 +28,7 @@ export interface CreateMessageParams {
   tools?: NormalizedTool[]
   thinking?: { type: string; budget_tokens?: number }
   reasoning?: { effort?: ReasoningEffort }
+  abortSignal?: AbortSignal
 }
 
 /**
@@ -75,6 +76,10 @@ export type NormalizedResponseBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: any }
 
+export type ProviderStreamEvent =
+  | { type: 'partial_text'; text: string }
+  | { type: 'final_response'; response: CreateMessageResponse }
+
 // --------------------------------------------------------------------------
 // Provider Interface
 // --------------------------------------------------------------------------
@@ -85,4 +90,7 @@ export interface LLMProvider {
 
   /** Send a message and get a response. */
   createMessage(params: CreateMessageParams): Promise<CreateMessageResponse>
+
+  /** Send a message and stream partial provider-normalized events. */
+  streamMessage?(params: CreateMessageParams): AsyncGenerator<ProviderStreamEvent>
 }
