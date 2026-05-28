@@ -59,6 +59,7 @@ export {
   createProvider,
   AnthropicProvider,
   OpenAIProvider,
+  OpenAIResponsesProvider,
 } from './providers/index.js'
 export type {
   ApiType,
@@ -69,6 +70,7 @@ export type {
   NormalizedContentBlock,
   NormalizedTool,
   NormalizedResponseBlock,
+  ReasoningEffort,
 } from './providers/index.js'
 
 // --------------------------------------------------------------------------

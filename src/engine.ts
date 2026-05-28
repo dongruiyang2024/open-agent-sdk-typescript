@@ -282,6 +282,9 @@ export class QueryEngine {
               system: systemPrompt,
               messages: apiMessages,
               tools: tools.length > 0 ? tools : undefined,
+              reasoning: this.config.effort
+                ? { effort: this.config.effort }
+                : undefined,
               thinking:
                 this.config.thinking?.type === 'enabled' &&
                 this.config.thinking.budgetTokens

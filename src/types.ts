@@ -336,7 +336,7 @@ export interface ModelInfo {
   displayName: string
   description: string
   supportsEffort?: boolean
-  supportedEffortLevels?: ('low' | 'medium' | 'high' | 'max')[]
+  supportedEffortLevels?: Array<import('./providers/types.js').ReasoningEffort>
   supportsAdaptiveThinking?: boolean
   supportsFastMode?: boolean
 }
@@ -395,8 +395,8 @@ export interface AgentOptions {
   agents?: Record<string, AgentDefinition>
   /** Maximum tokens for responses */
   maxTokens?: number
-  /** Effort level for reasoning */
-  effort?: 'low' | 'medium' | 'high' | 'max'
+  /** Effort level for OpenAI Responses reasoning */
+  effort?: import('./providers/types.js').ReasoningEffort
   /** Fallback model if primary is unavailable */
   fallbackModel?: string
   /** Continue the most recent session in cwd */
@@ -473,6 +473,7 @@ export interface QueryEngineConfig {
   maxTurns: number
   maxBudgetUsd?: number
   maxTokens: number
+  effort?: import('./providers/types.js').ReasoningEffort
   thinking?: ThinkingConfig
   jsonSchema?: Record<string, unknown>
   canUseTool: CanUseToolFn

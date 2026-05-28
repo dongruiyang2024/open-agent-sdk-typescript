@@ -122,7 +122,11 @@ export class Agent {
     const envType =
       this.cfg.env?.CODEANY_API_TYPE ??
       this.readEnv('CODEANY_API_TYPE')
-    if (envType === 'openai-completions' || envType === 'anthropic-messages') {
+    if (
+      envType === 'openai-completions' ||
+      envType === 'openai-responses' ||
+      envType === 'anthropic-messages'
+    ) {
       return envType
     }
 
@@ -302,6 +306,7 @@ export class Agent {
       maxTurns: opts.maxTurns ?? 10,
       maxBudgetUsd: opts.maxBudgetUsd,
       maxTokens: opts.maxTokens ?? 16384,
+      effort: opts.effort,
       thinking: opts.thinking,
       jsonSchema: opts.jsonSchema,
       canUseTool,

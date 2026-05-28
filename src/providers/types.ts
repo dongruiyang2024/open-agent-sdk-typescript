@@ -2,7 +2,7 @@
  * LLM Provider Abstraction Types
  *
  * Defines a provider interface that normalizes API differences between
- * Anthropic Messages API and OpenAI Chat Completions API.
+ * Anthropic Messages API, OpenAI Chat Completions API, and OpenAI Responses API.
  *
  * Internally the SDK uses Anthropic-like message format as the canonical
  * representation. Providers convert to/from their native API format.
@@ -12,7 +12,9 @@
 // API Type
 // --------------------------------------------------------------------------
 
-export type ApiType = 'anthropic-messages' | 'openai-completions'
+export type ApiType = 'anthropic-messages' | 'openai-completions' | 'openai-responses'
+
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 // --------------------------------------------------------------------------
 // Normalized Request
@@ -25,6 +27,7 @@ export interface CreateMessageParams {
   messages: NormalizedMessageParam[]
   tools?: NormalizedTool[]
   thinking?: { type: string; budget_tokens?: number }
+  reasoning?: { effort?: ReasoningEffort }
 }
 
 /**
